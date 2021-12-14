@@ -1,7 +1,11 @@
+require_relative 'ldap_raise_extension'
+
 module Devise
   module LDAP
     class Connection
       attr_reader :ldap, :login
+
+      using Devise::LDAP::LDAPRaiseExtension
 
       def initialize(params = {})
         if ::Devise.ldap_config.is_a?(Proc)
@@ -33,7 +37,13 @@ module Devise
         @required_attributes = ldap_config["require_attribute"]
         @required_attributes_presence = ldap_config["require_attribute_presence"]
 
-        @ldap.auth ldap_config["admin_user"], ldap_config["admin_password"] if params[:admin]
+        if params[:admin]
+          @ldap.auth ldap_config["admin_user"], ldap_config["admin_password"]
+          unless @ldap.bind
+            DeviseLdapAuthenticatable::Logger.send("Cannot bind to admin LDAP user")
+            raise DeviseLdapAuthenticatable::LdapAdminCredentialsException
+          end
+        end
 
         @login = params[:login]
         @password = params[:password]
@@ -252,14 +262,7 @@ module Devise
       private
 
       def self.admin
-        ldap = Connection.new(:admin => true).ldap
-
-        unless ldap.bind
-          DeviseLdapAuthenticatable::Logger.send("Cannot bind to admin LDAP user")
-          raise DeviseLdapAuthenticatable::LdapException, "Cannot connect to admin LDAP user"
-        end
-
-        return ldap
+        Connection.new(:admin => true).ldap
       end
 
       def find_ldap_user(ldap)
